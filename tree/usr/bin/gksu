@@ -25,9 +25,13 @@ main(){
                 shift
                 user_target="$arg"
                 ;;
+            --)
+                # no more parameters wanted
+                break
+                ;;
             *)
+                # this should be the command / parameters themselves
                 shift
-                el_warning "unknown option: $arg"
                 ;;
         esac
     done
