@@ -31,7 +31,7 @@ main(){
                 ;;
             *)
                 # this should be the command / parameters themselves
-                shift
+                true
                 ;;
         esac
     done
