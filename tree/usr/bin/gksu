@@ -1,0 +1,64 @@
+#!/bin/bash
+source /usr/lib/elive-tools/functions
+
+main(){
+    # pre {{{
+    local args arg is_home_target_requested
+
+    # }}}
+
+    for arg in "$@"
+    do
+        case "$arg" in
+            -k|--preserve-env)
+                shift
+                args_pkexec="-E $args_pkexec"
+                args_sudo="-E $args_sudo"
+                ;;
+            -H)
+                shift
+                #export HOME="/root"
+                is_home_target_requested=1
+                args_sudo="-H $args_sudo"
+                ;;
+            -u|--user)
+                shift
+                user_target="$arg"
+                ;;
+            *)
+                shift
+                el_warning "unknown option: $arg"
+                ;;
+        esac
+    done
+
+    if ((is_home_target_requested)) ; then
+        if [[ -n "$user_target" ]] ; then
+            if [[ "$user_target" = "root" ]] ; then
+                export HOME="/root"
+            else
+                export HOME="/home/$user_target"
+            fi
+        fi
+    fi
+
+
+
+    # make sudo able to use a GUI when needed
+    if [[ -n "$DISPLAY" ]] ; then
+        export SUDO_ASKPASS="pkexec"
+    fi
+
+    if grep -qs "boot=live" /proc/cmdline ; then
+        sudo $args_sudo "$@"
+    else
+        pkexec env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" $args_pkexec "$@"
+    fi
+}
+
+#
+#  MAIN
+#
+main "$@"
+
+# vim: set foldmethod=marker :
