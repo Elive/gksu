@@ -54,9 +54,9 @@ main(){
     fi
 
     if grep -qs "boot=live" /proc/cmdline ; then
-        sudo $args_sudo "$@"
+        sudo $args_sudo $@
     else
-        pkexec env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" $args_pkexec "$@"
+        pkexec env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" $args_pkexec $@
     fi
 }
 
