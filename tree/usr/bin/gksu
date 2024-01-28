@@ -58,7 +58,7 @@ main(){
     if grep -Fqs "boot=live" /proc/cmdline || sudo -H -n echo 1>/dev/null 2>&1 ; then
         sudo $args_sudo "$@"
     else
-        pkexec env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" $args_pkexec "$@"
+        pkexec env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" DBUS_SESSION_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" $args_pkexec "$@"
     fi
 }
 
