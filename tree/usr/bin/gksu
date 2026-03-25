@@ -1,7 +1,7 @@
 #!/bin/bash
-#SOURCE="$0"
-#source /usr/lib/elive-tools/functions
-#EL_REPORTS="1"
+SOURCE="$0"
+source /usr/lib/elive-tools/functions
+EL_REPORTS="1"
 
 main(){
     # pre {{{
@@ -51,19 +51,29 @@ main(){
 
 
 
-    # make sudo able to use a GUI when needed
-    if [[ -n "$DISPLAY" ]] ; then
-        export SUDO_ASKPASS="pkexec"
+    if el_check_sudo_automated ; then
+        sudo $args_sudo "$@"
+    elif [[ -n "$TMUX" ]] || [[ -n "$SSH_CLIENT" ]] ; then
+        su $args_su -c "$*" root
+    elif command -v pkexec >/dev/null 2>&1 ; then
+        pkexec env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" $args_pkexec "$@"
+    else
+        # Fallback to sudo with zenity askpass if pkexec is missing
+        if [[ -n "$DISPLAY" ]] && command -v zenity >/dev/null 2>&1; then
+            export SUDO_ASKPASS_SCRIPT=$(mktemp)
+            echo '#!/bin/sh' > "$SUDO_ASKPASS_SCRIPT"
+            echo 'zenity --password --title="Sudo Password Required"' >> "$SUDO_ASKPASS_SCRIPT"
+            chmod +x "$SUDO_ASKPASS_SCRIPT"
+            export SUDO_ASKPASS="$SUDO_ASKPASS_SCRIPT"
+            sudo -A $args_sudo "$@"
+        else
+            sudo $args_sudo "$@"
+        fi
     fi
 
-    if grep -Fqs "boot=live" /proc/cmdline || sudo -H -n echo 1>/dev/null 2>&1 ; then
-        sudo $args_sudo "$@"
-    else
-        if [[ -n "$TMUX" ]] || [[ -n "$SSH_CLIENT" ]] ; then
-            su $args_su -c "$*" root
-        else
-            pkexec env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" $args_pkexec "$@"
-        fi
+    # Cleanup askpass script if created
+    if [[ -n "$SUDO_ASKPASS_SCRIPT" ]] && [[ -f "$SUDO_ASKPASS_SCRIPT" ]]; then
+        rm -f "$SUDO_ASKPASS_SCRIPT"
     fi
 
 
