@@ -6,6 +6,7 @@ EL_REPORTS="1"
 main(){
     # pre {{{
     local args_pkexec args_sudo args_su user_target is_home_target_requested SUDO_ASKPASS_SCRIPT ret=0
+    local -a pkexec_env
 
     # }}}
 
@@ -47,6 +48,11 @@ main(){
         esac
     done
 
+    if [[ $# -eq 0 ]] ; then
+        el_debug "gksu: no command specified"
+        return 1
+    fi
+
     if [[ -n "$user_target" ]] ; then
         args_pkexec="--user $user_target $args_pkexec"
         args_sudo="-u $user_target $args_sudo"
@@ -54,45 +60,42 @@ main(){
     el_debug "gksu options parsed: user_target='$user_target' is_home_target_requested='$is_home_target_requested' args_sudo='$args_sudo' args_pkexec='$args_pkexec' args_su='$args_su'"
 
     if ((is_home_target_requested)) ; then
-        if [[ -n "$user_target" ]] ; then
-            if [[ "$user_target" = "root" ]] ; then
-                export HOME="/root"
-            else
-                export HOME="/home/$user_target"
-            fi
+        if [[ -z "$user_target" || "$user_target" = "root" ]] ; then
+            export HOME="/root"
+        else
+            export HOME="/home/$user_target"
         fi
     fi
-
-
 
     if el_check_sudo_automated ; then
         el_debug "gksu: running via automated sudo: $*"
         sudo $args_sudo "$@"
         ret=$?
+    elif [[ -n "$DISPLAY" || -n "$WAYLAND_DISPLAY" ]] && command -v zenity >/dev/null 2>&1 && command -v sudo >/dev/null 2>&1 ; then
+        # Prefer sudo -A with zenity in GUI sessions so it always prompts graphically as the current user
+        SUDO_ASKPASS_SCRIPT=$(mktemp)
+        printf '#!/bin/sh\nexec zenity --password --title="Sudo Password Required"\n' > "$SUDO_ASKPASS_SCRIPT"
+        chmod +x "$SUDO_ASKPASS_SCRIPT"
+        export SUDO_ASKPASS="$SUDO_ASKPASS_SCRIPT"
+        el_debug "gksu: running via sudo -A with zenity askpass: $*"
+        sudo -A $args_sudo "$@"
+        ret=$?
+    elif [[ -n "$DISPLAY" || -n "$WAYLAND_DISPLAY" ]] && command -v pkexec >/dev/null 2>&1 ; then
+        [[ -n "$DISPLAY" ]] && pkexec_env+=(DISPLAY="$DISPLAY")
+        [[ -n "$WAYLAND_DISPLAY" ]] && pkexec_env+=(WAYLAND_DISPLAY="$WAYLAND_DISPLAY")
+        [[ -n "$XAUTHORITY" ]] && pkexec_env+=(XAUTHORITY="$XAUTHORITY")
+        ((is_home_target_requested)) && pkexec_env+=(HOME="$HOME")
+        el_debug "gksu: running via pkexec: $*"
+        pkexec $args_pkexec env "${pkexec_env[@]}" "$@"
+        ret=$?
     elif [[ -n "$TMUX" ]] || [[ -n "$SSH_CLIENT" ]] ; then
         el_debug "gksu: running via su for user '${user_target:-root}': $*"
         su $args_su -c "$*" "${user_target:-root}"
         ret=$?
-    elif command -v pkexec >/dev/null 2>&1 ; then
-        el_debug "gksu: running via pkexec: $*"
-        pkexec $args_pkexec env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" "$@"
-        ret=$?
     else
-        # Fallback to sudo with zenity askpass if pkexec is missing
-        if [[ -n "$DISPLAY" ]] && command -v zenity >/dev/null 2>&1; then
-            SUDO_ASKPASS_SCRIPT=$(mktemp)
-            echo '#!/bin/sh' > "$SUDO_ASKPASS_SCRIPT"
-            echo 'zenity --password --title="Sudo Password Required"' >> "$SUDO_ASKPASS_SCRIPT"
-            chmod +x "$SUDO_ASKPASS_SCRIPT"
-            export SUDO_ASKPASS="$SUDO_ASKPASS_SCRIPT"
-            el_debug "gksu: running via sudo -A with zenity askpass: $*"
-            sudo -A $args_sudo "$@"
-            ret=$?
-        else
-            el_debug "gksu: running via sudo fallback: $*"
-            sudo $args_sudo "$@"
-            ret=$?
-        fi
+        el_debug "gksu: running via sudo fallback: $*"
+        sudo $args_sudo "$@"
+        ret=$?
     fi
 
     # Cleanup askpass script if created
