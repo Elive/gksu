@@ -5,16 +5,15 @@ EL_REPORTS="1"
 
 main(){
     # pre {{{
-    local args arg is_home_target_requested
+    local args_pkexec args_sudo args_su user_target is_home_target_requested SUDO_ASKPASS_SCRIPT ret=0
 
     # }}}
 
-    for arg in "$@"
+    while [[ $# -gt 0 ]]
     do
-        case "$arg" in
+        case "$1" in
             -k|--preserve-env)
                 shift
-                args_pkexec="-E $args_pkexec"
                 args_sudo="-E $args_sudo"
                 args_su="--preserve-environment $args_su"
                 ;;
@@ -25,19 +24,34 @@ main(){
                 args_sudo="-H $args_sudo"
                 ;;
             -u|--user)
+                if [[ -n "${2:-}" ]] ; then
+                    user_target="$2"
+                    shift 2
+                else
+                    shift
+                fi
+                ;;
+            --user=*)
+                user_target="${1#*=}"
                 shift
-                user_target="$arg"
                 ;;
             --)
                 # no more parameters wanted
+                shift
                 break
                 ;;
             *)
                 # this should be the command / parameters themselves
-                true
+                break
                 ;;
         esac
     done
+
+    if [[ -n "$user_target" ]] ; then
+        args_pkexec="--user $user_target $args_pkexec"
+        args_sudo="-u $user_target $args_sudo"
+    fi
+    el_debug "gksu options parsed: user_target='$user_target' is_home_target_requested='$is_home_target_requested' args_sudo='$args_sudo' args_pkexec='$args_pkexec' args_su='$args_su'"
 
     if ((is_home_target_requested)) ; then
         if [[ -n "$user_target" ]] ; then
@@ -52,22 +66,32 @@ main(){
 
 
     if el_check_sudo_automated ; then
+        el_debug "gksu: running via automated sudo: $*"
         sudo $args_sudo "$@"
+        ret=$?
     elif [[ -n "$TMUX" ]] || [[ -n "$SSH_CLIENT" ]] ; then
-        su $args_su -c "$*" root
+        el_debug "gksu: running via su for user '${user_target:-root}': $*"
+        su $args_su -c "$*" "${user_target:-root}"
+        ret=$?
     elif command -v pkexec >/dev/null 2>&1 ; then
-        pkexec env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" $args_pkexec "$@"
+        el_debug "gksu: running via pkexec: $*"
+        pkexec $args_pkexec env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" "$@"
+        ret=$?
     else
         # Fallback to sudo with zenity askpass if pkexec is missing
         if [[ -n "$DISPLAY" ]] && command -v zenity >/dev/null 2>&1; then
-            export SUDO_ASKPASS_SCRIPT=$(mktemp)
+            SUDO_ASKPASS_SCRIPT=$(mktemp)
             echo '#!/bin/sh' > "$SUDO_ASKPASS_SCRIPT"
             echo 'zenity --password --title="Sudo Password Required"' >> "$SUDO_ASKPASS_SCRIPT"
             chmod +x "$SUDO_ASKPASS_SCRIPT"
             export SUDO_ASKPASS="$SUDO_ASKPASS_SCRIPT"
+            el_debug "gksu: running via sudo -A with zenity askpass: $*"
             sudo -A $args_sudo "$@"
+            ret=$?
         else
+            el_debug "gksu: running via sudo fallback: $*"
             sudo $args_sudo "$@"
+            ret=$?
         fi
     fi
 
@@ -76,7 +100,8 @@ main(){
         rm -f "$SUDO_ASKPASS_SCRIPT"
     fi
 
-
+    el_debug "gksu: finished with exit status $ret"
+    return $ret
 }
 
 #
